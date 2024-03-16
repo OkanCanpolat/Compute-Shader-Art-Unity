@@ -1,0 +1,107 @@
+#pragma kernel CSMain
+
+RWTexture2D<float4> Result;
+float2 Resolution;
+float Time;
+
+float DistLine(float2 p, float2 a, float2 b)
+{
+    float2 pa = p - a;
+    float2 ba = b - a;
+    
+    float t = clamp(dot(pa, ba) / dot(ba, ba), 0., 1.);
+    
+    return length(pa - ba * t);
+}
+
+float DrawLine(float2 p, float2 a, float2 b)
+{
+    float d = DistLine(p, a, b);
+    float m = smoothstep(.03, .01, d);
+    float d2 = length(b - a);
+    m *= smoothstep(1.2, .8, d2) * .5 + smoothstep(.05, .03, abs(d2 - .75));
+    return m;
+}
+
+float N21(float2 p)
+{
+    p = frac(p * float2(233.34, 851.73));
+    p += dot(p, p + 23.45);
+    return frac(p.x * p.y);
+}
+float2 N22(float2 p)
+{
+    float n = N21(p);
+    return float2(n, N21(p + n));
+}
+
+float2 GetPos(float2 id, float2 offset)
+{
+    float2 p = N22(id + offset) * Time;
+    return offset + sin(p) * .4;
+}
+float Layer(float2 uv)
+{
+    float m = 0;
+    
+    float2 gv = frac(uv) - .5;
+    float2 cellId = floor(uv);
+    
+    float2 points[9];
+    int i = 0;
+    
+    for (float y = -1; y <= 1; y++)
+    {
+        for (float x = -1; x <= 1; x++)
+        {
+            points[i++] = GetPos(cellId, float2(x, y));
+        }
+    }
+    
+    for (int index = 0; index < 9; index++)
+    {
+        m += DrawLine(gv, points[4], points[index]);
+        float2 v = (points[index] - gv) * 20.;
+        float light = 1. / dot(v, v);
+        m += light * (sin(Time + frac(points[index].x) * 10.) * .5 + .5);
+    }
+    
+    m += DrawLine(gv, points[1], points[3]);
+    m += DrawLine(gv, points[1], points[5]);
+    m += DrawLine(gv, points[7], points[3]);
+    m += DrawLine(gv, points[7], points[5]);
+    
+    return m;
+}
+
+[numthreads(8, 8, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    float2 uv = (id.xy - .5 * Resolution) / Resolution.y;
+    
+    float m = 0;
+    float t = Time * .1;
+    
+    float gradient = uv.y;
+    
+    float s = sin(t);
+    float c = cos(t);
+    float2x2 rot = float2x2(c, s, -s, c);
+    
+    uv = mul(uv, rot);
+    
+    for (float i = 0; i < 1; i += 1. / 4.)
+    {
+        float z = frac(i + t);
+        float size = lerp(10., .5, z);
+        float fade = smoothstep(0., .5, z) * smoothstep(1., .8, z);
+        m += Layer(uv * size + i * 20.) * fade;
+    }
+    
+    float3 base = sin(t * 5. * float3(.987, .312, .156)) * .4 + .6;
+    float3 col = m * base;
+    col -= gradient * base;
+   
+    Result[id.xy] = float4(col, 0.0);
+    
+}

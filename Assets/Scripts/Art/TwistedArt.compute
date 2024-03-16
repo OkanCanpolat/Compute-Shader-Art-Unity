@@ -1,0 +1,61 @@
+#pragma kernel CSMain
+
+RWTexture2D<float4> Result;
+float2 Resolution;
+float Time;
+
+[numthreads(8, 8, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    float2 uv = (id.xy - .5 * Resolution.xy) / Resolution.y;
+    float3 col = float3(0, 0, 0);
+    float t = Time * .2;
+    
+    uv = mul(uv, float2x2(cos(t), sin(t), -sin(t), cos(t)));
+    
+    float3 ro = float3(0., 0., -1.);
+    float3 lookAt = lerp(float3(0, 0, 0), float3(-1, 0, -1), sin(t) * .5 + .5);
+    float zoom = lerp(.2, .7, sin(t) * .5 + .5);
+    
+    float3 forward = normalize(lookAt - ro);
+    float3 right = normalize(cross(float3(0, 1, 0), forward));
+    float3 up = cross(forward, right);
+    float3 center = ro + forward * zoom;
+    float3 intersection = center + uv.x * right + uv.y * up;
+    float3 rd = normalize(intersection - ro);
+    
+    float dS;
+    float dO;
+    float3 p;
+    
+    float radius = .75;
+    
+    for (int i = 0; i < 100; i++)
+    {
+        p = ro + rd * dO;
+        dS = -(length(float2(length(p.xz) - 1., p.y)) - radius);
+        if (dS < 0.01)
+            break;
+        dO += dS;
+    }
+    
+    if (dS < 0.01)
+    {
+        float x = atan2(p.x, p.z) + t * .5;
+        float y = (atan2(length(p.xz) - 1., p.y));
+        
+        float bands = sin(y * 10. + x * 20.);
+        float ripples = sin((x * 10. + -y * 30.) * 3.) * .5 + .5;
+        float waves = sin(x * 2. + -y * 6. + t * 20);
+        
+        float b1 = smoothstep(-.2, .2, bands);
+        float b2 = smoothstep(-.2, .2, bands - .5);
+        
+        float m = b1 * (1. - b2);
+        m = max(m, ripples * b2 * max(0, waves));
+        m += max(0, waves * .3 * b2);
+        col += lerp(m, 1. - m, smoothstep(-.3, .3, sin(x * 2. + t)));
+    }
+    
+    Result[id.xy] = float4(col, 1);
+}
